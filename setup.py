@@ -5,9 +5,9 @@ with open('README.md', 'r') as fh:
     long_description = fh.read()
 
 setup(
-    name='tfswin',
+    name='tfswinV2',
     version='3.0.1',
-    description='Keras (TensorFlow v2) reimplementation of Swin Transformer V1 & V2 models.',
+    description='KerKeras (TensorFlow v2) implementation of Swin Transformer V1 and V2 with Unet for segmentation purposes',
     long_description=long_description,
     long_description_content_type="text/markdown",
     url='https://github.com/shkarupa-alex/tfswin',

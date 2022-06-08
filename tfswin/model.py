@@ -3,10 +3,11 @@ import tensorflow as tf
 from keras import backend, layers, models
 from keras.applications import imagenet_utils
 from keras.utils import conv_utils, data_utils, layer_utils
-from tfswin.ape import AbsoluteEmbedding
 from tfswin.basic import BasicLayer
+from tfswin.ape import AbsoluteEmbedding
 from tfswin.embed import PatchEmbedding
 from tfswin.merge import PatchMerging
+from tfswin.expand import PatchExpanding
 from tfswin.norm import LayerNorm
 
 BASE_URL = 'https://github.com/shkarupa-alex/tfswin/releases/download/{}/swin{}_{}.h5'
@@ -43,10 +44,10 @@ WEIGHT_HASHES = {
 
 
 def SwinTransformer(
-        pretrain_size, window_size, embed_dim, depths, num_heads, patch_size=4, patch_norm=True, use_ape=False,
+        pretrain_size, window_size, embed_dim, depths, num_heads, input_shape, output_shape, patch_size=4, patch_norm=True, use_ape=False,
         drop_rate=0., mlp_ratio=4., qkv_bias=True, qk_scale=None, attn_drop=0., path_drop=0.1,
-        window_pretrain=None, swin_v2=False, model_name='swin', include_top=True, weights=None,
-        input_tensor=None, input_shape=None, pooling=None, classes=1000, classifier_activation='softmax'):
+        window_pretrain=None, swin_v2=False, model_name='swin', weights=None,
+        input_tensor=None , pooling=None, imagenet_classes=1000, classifier_activation='softmax'):
     """Instantiates the Swin Transformer architecture.
 
     Args:
@@ -75,7 +76,7 @@ def SwinTransformer(
         - `avg` means that global average pooling will be applied to the output of the last layer, and thus the output
           of the model will be a 2D tensor.
         - `max` means that global max pooling will be applied.
-      classes: optional number of classes to classify images into, only to be specified if `include_top` is True.
+      imagenet_classes: optional number of classes for imagenet weights either 1000 or 21841
       classifier_activation: the activation function to use on the "top" layer. Ignored unless `include_top=True`.
         When loading pretrained weights, `classifier_activation` can only be `None` or `"softmax"`.
 
@@ -86,9 +87,6 @@ def SwinTransformer(
         raise ValueError('The `weights` argument should be either `None` (random initialization), `imagenet` '
                          '(pre-training on ImageNet), or the path to the weights file to be loaded.')
 
-    if weights == 'imagenet' and include_top and classes not in {1000, 21841}:
-        raise ValueError('If using `weights` as `"imagenet"` with `include_top` as true, '
-                         '`classes` should be 1000 or 21841 depending on model type')
 
     if input_tensor is not None:
         try:
@@ -112,7 +110,7 @@ def SwinTransformer(
         data_format='channel_last',
         require_flatten=False,
         weights=weights)
-
+    
     if input_tensor is not None:
         if backend.is_keras_tensor(input_tensor):
             image = input_tensor
@@ -120,7 +118,9 @@ def SwinTransformer(
             image = layers.Input(tensor=input_tensor, shape=input_shape, dtype='float32')
     else:
         image = layers.Input(shape=input_shape)
-
+    
+    classes = output_shape[-1]
+    x_skip = []
     # Define model pipeline
     x = PatchEmbedding(patch_size=patch_size, embed_dim=embed_dim, normalize=patch_norm, name='patch_embed')(image)
 
@@ -138,27 +138,39 @@ def SwinTransformer(
     elif window_pretrain is None and swin_v2:
         window_pretrain = [0] * len(depths)
 
+
+    size_for_upsample = embed_dim
+    size_of_dim = input_shape[0]//patch_size
     for i in range(len(depths)):
         path_drop = path_drops[sum(depths[:i]):sum(depths[:i + 1])].tolist()
         not_last = i != len(depths) - 1
-
+        
         x = BasicLayer(depth=depths[i], num_heads=num_heads[i], window_size=window_size, mlp_ratio=mlp_ratio,
                        qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop, path_drop=path_drop,
                        window_pretrain=window_pretrain[i], swin_v2=swin_v2, name=f'layers.{i}')(x)
+        
+
+        x_skip.append(x)
         if not_last:
+            size_for_upsample = size_for_upsample*2
+            size_of_dim = size_of_dim//2
             x = PatchMerging(swin_v2=swin_v2, name=f'layers.{i}/downsample')(x)
 
+    
     x = LayerNorm(name='norm')(x)
 
-    if include_top or pooling in {None, 'avg'}:
+    if pooling in {None, 'avg'}:
         x = layers.GlobalAveragePooling2D(name='avg_pool')(x)
     elif pooling == 'max':
         x = layers.GlobalMaxPooling2D(name='max_pool')(x)
     else:
         raise ValueError(f'Expecting pooling to be one of None/avg/max. Found: {pooling}')
-
+        
+    if imagenet_classes not in [1000, 21841]:
+        raise ValueError(f'Expecting imagenet_classes to be one of 1000, 21841. Found: {imagenet_classes}')
+    
     imagenet_utils.validate_activation(classifier_activation, weights)
-    x = layers.Dense(classes, name='head')(x)
+    x = layers.Dense(imagenet_classes, name='head')(x)
     x = layers.Activation(classifier_activation, dtype='float32', name='pred')(x)
 
     # Ensure that the model takes into account any potential predecessors of `input_tensor`.
@@ -170,6 +182,8 @@ def SwinTransformer(
     # Create model.
     model = models.Model(inputs, x, name=model_name)
 
+    
+
     # Load weights.
     if 'imagenet' == weights and model_name in WEIGHT_URLS:
         weights_url = WEIGHT_URLS[model_name]
@@ -179,65 +193,110 @@ def SwinTransformer(
     elif weights is not None:
         model.load_weights(weights)
 
-    if include_top:
-        return model
 
-    last_layer = 'norm'
-    if pooling == 'avg':
-        last_layer = 'avg_pool'
-    elif pooling == 'max':
-        last_layer = 'max_pool'
+    
 
-    outputs = model.get_layer(name=last_layer).output
-    model = models.Model(inputs=inputs, outputs=outputs, name=model_name)
 
+
+    # Decoder steps
+    x_skip = [model.get_layer(i.name.split('/')[0]).output for i in x_skip]
+    x_skip = x_skip[::-1]
+    num_heads = num_heads[::-1]
+    depths = depths[::-1]
+    depths = depths[:-1]
+    X = x_skip[0]
+
+    model = None
+
+    x_decode = x_skip[1:]
+
+    
+    depth_decode = len(x_decode)
+
+    for i in range(depth_decode):
+        path_drop = path_drops[sum(depths[:i]):sum(depths[:i + 1])].tolist()
+        # Patch Expanding
+        X = PatchExpanding(return_vector=False,upsample_rate=2, name= '{}_upsampling'.format(i))(X)
+
+        size_for_upsample = size_for_upsample//2
+        size_of_dim = size_of_dim*2
+
+        #Concatenation and linear projection
+        X = layers.concatenate([X, x_decode[i]], axis= -1, name='upsampling_concat_{}'.format(i))
+        X = layers.Dense(size_for_upsample, use_bias=False, name='Upsampling_concat_linear_proj_{}'.format(i))(X)
+
+
+        X = BasicLayer(depth=depths[i], num_heads=num_heads[i], window_size=window_size, mlp_ratio=mlp_ratio,
+                       qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop, path_drop=path_drop,
+                       window_pretrain=window_pretrain[i], swin_v2=swin_v2, name=f'Swin_Up.{i}')(X)
+    
+
+    X = PatchExpanding(return_vector=False, upsample_rate=4)(X)
+    
+    if input_tensor is not None:
+        inputs = layer_utils.get_source_inputs(input_tensor)
+    else:
+        inputs = image
+    
+    X = layers.Conv2D(classes, 1, padding='same', use_bias=True, name="last_conv_layer")(X)
+    
+        
+    if classes == 1:
+        X = layers.Activation('sigmoid', name='last_activation')(X)
+        
+    else:
+
+        X = layers.Activation('Softmax', name='last_activation')(X)
+    # Create model.
+    model = models.Model(inputs, X, name=model_name)
     return model
+
 
 
 def SwinTransformerTiny224(model_name='swin_tiny_224', pretrain_size=224, window_size=7, embed_dim=96,
                            depths=(2, 2, 6, 2), num_heads=(3, 6, 12, 24), path_drop=0.2, weights='imagenet',
-                           classes=21841, **kwargs):
+                           imagenet_classes=21841, **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
                            embed_dim=embed_dim, depths=depths, num_heads=num_heads, path_drop=path_drop,
-                           weights=weights, classes=classes, **kwargs)
+                           weights=weights, imagenet_classes=imagenet_classes, **kwargs)
 
 
 def SwinTransformerSmall224(model_name='swin_small_224', pretrain_size=224, window_size=7, embed_dim=96,
                             depths=(2, 2, 18, 2), num_heads=(3, 6, 12, 24), path_drop=0.3, weights='imagenet',
-                            classes=21841, **kwargs):
+                            imagenet_classes=21841, **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
                            embed_dim=embed_dim, depths=depths, num_heads=num_heads, path_drop=path_drop,
-                           weights=weights, classes=classes, **kwargs)
+                           weights=weights, imagenet_classes=imagenet_classes, **kwargs)
 
 
 def SwinTransformerBase224(model_name='swin_base_224', pretrain_size=224, window_size=7, embed_dim=128,
                            depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32), path_drop=0.5, weights='imagenet',
-                           classes=21841, **kwargs):
+                           imagenet_classes=21841, **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
                            embed_dim=embed_dim, depths=depths, num_heads=num_heads, path_drop=path_drop,
-                           weights=weights, classes=classes, **kwargs)
+                           weights=weights, imagenet_classes=imagenet_classes, **kwargs)
 
 
 def SwinTransformerBase384(model_name='swin_base_384', pretrain_size=384, window_size=12, embed_dim=128,
-                           depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32), weights='imagenet', classes=21841, **kwargs):
+                           depths=(2, 2, 18, 2), num_heads=(4, 8, 16, 32), weights='imagenet', imagenet_classes=21841, **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
-                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, classes=classes,
+                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, imagenet_classes=imagenet_classes,
                            **kwargs)
 
 
 def SwinTransformerLarge224(model_name='swin_large_224', pretrain_size=224, window_size=7, embed_dim=192,
-                            depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48), weights='imagenet', classes=21841,
+                            depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48), weights='imagenet', imagenet_classes=21841,
                             **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
-                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, classes=classes,
+                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, imagenet_classes=imagenet_classes,
                            **kwargs)
 
 
 def SwinTransformerLarge384(model_name='swin_large_384', pretrain_size=384, window_size=12, embed_dim=192,
-                            depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48), weights='imagenet', classes=21841,
+                            depths=(2, 2, 18, 2), num_heads=(6, 12, 24, 48), weights='imagenet', imagenet_classes=21841,
                             **kwargs):
     return SwinTransformer(model_name=model_name, pretrain_size=pretrain_size, window_size=window_size,
-                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, classes=classes,
+                           embed_dim=embed_dim, depths=depths, num_heads=num_heads, weights=weights, imagenet_classes=imagenet_classes,
                            **kwargs)
 
 

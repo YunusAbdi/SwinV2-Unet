@@ -10,7 +10,7 @@ from tfswin.winatt import WindowAttention
 from tfswin.window import window_partition, window_reverse
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class SwinBlock(layers.Layer):
     def __init__(self, num_heads, mlp_ratio=4., qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., path_drop=0.,
                  window_pretrain=0, swin_v2=False, **kwargs):

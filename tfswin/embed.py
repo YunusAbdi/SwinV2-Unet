@@ -5,7 +5,7 @@ from keras.utils.tf_utils import shape_type_conversion
 from tfswin.norm import LayerNorm
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class PatchEmbedding(layers.Layer):
     def __init__(self, patch_size, embed_dim, normalize, **kwargs):
         super().__init__(**kwargs)

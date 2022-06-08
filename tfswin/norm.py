@@ -4,7 +4,7 @@ from keras import layers
 from keras.utils.generic_utils import register_keras_serializable
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class LayerNorm(layers.LayerNormalization):
     # Overload defaults and casting to use fused implementation
 

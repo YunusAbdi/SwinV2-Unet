@@ -8,7 +8,7 @@ from tfswin.swin import SwinBlock
 from tfswin.window import window_partition
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class BasicLayer(layers.Layer):
     def __init__(self, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
                  drop=0., attn_drop=0., path_drop=0., window_pretrain=0, swin_v2=False, **kwargs):

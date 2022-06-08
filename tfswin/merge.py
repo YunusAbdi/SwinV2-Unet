@@ -6,7 +6,7 @@ from keras.utils.tf_utils import shape_type_conversion
 from tfswin.norm import LayerNorm
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class PatchMerging(layers.Layer):
     def __init__(self, swin_v2=False, **kwargs):
         super().__init__(**kwargs)

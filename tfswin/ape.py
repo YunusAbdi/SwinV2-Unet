@@ -4,7 +4,7 @@ from keras.utils.generic_utils import register_keras_serializable
 from keras.utils.tf_utils import shape_type_conversion
 
 
-@register_keras_serializable(package='TFSwin')
+@register_keras_serializable(package='TFSwinV2')
 class AbsoluteEmbedding(layers.Layer):
     def __init__(self, pretrain_size, **kwargs):
         super().__init__(**kwargs)
