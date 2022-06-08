@@ -83,3 +83,12 @@ of `32 * window_size`. Otherwise a lot of tensors will be padded, resulting in s
   year={2022}
 }
 ```
+
+```
+@inproceedings{liu2021swinv2,
+  title={Swin-Unet: Unet-like Pure Transformer for Medical Image Segmentation}, 
+  author={Hu Cao, Yueyue Wang, Joy Chen, Dongsheng Jiang, Xiaopeng Zhang, Qi Tian, Manning Wang},
+  booktitle={arXiv:2105.05537v1 [eess.IV]},
+  year={2021}
+}
+```
