@@ -23,7 +23,7 @@ model.compile(...)
 model.fit(...)
 ```
 
-Custom classification (with preprocessing):
+Custom Segmentation (with preprocessing):
 
 ```python
 from keras import layers, models
