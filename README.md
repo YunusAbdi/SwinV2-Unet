@@ -9,32 +9,32 @@ Medical Image Segmentation](https://arxiv.org/pdf/2105.05537.pdf).
 
 ## Examples
 
-Default usage (without preprocessing):
+Default usage (with preprocessing):
+Please note that by default the model takes images in the uint8 format with pixel values between 0-255
+The preprocess layer preprocesses the images using imagenet preprocessing. If you want to use imagenet weights please use this preprocessing procedure as Transformers are sensitive in this regard!
 
 ```python
-from tfswin import SwinTransformerTiny224  # + 5 other variants and input preprocessing
+from tfswin import SwinTransformerTiny224  # + 5 other variants
 
 # or 
-# from tfswin import SwinTransformerV2Tiny256  # + 5 other variants and input preprocessing
+# from tfswin import SwinTransformerV2Tiny256  # + 5 other variants
 
-# Important!! Input and output shapes must be provided for weight and layer calculations
-model = SwinTransformerTiny224(input_shape=(224, 224, 3), output_shape = (224,224,1))  # by default will download imagenet[21k]-pretrained weights
+# Important!! Input and output shapes must be provided for weights and layer calculations
+model = SwinTransformerTiny224(input_shape=(224, 224, 3), output_shape = (224,224,1))  # by default will download imagenet[21k]-pretrained weights and preprocess input if argument preprocess is not given!
 model.compile(...)
 model.fit(...)
 ```
 
-Custom Segmentation (with preprocessing):
+Custom Segmentation (without preprocessing):
 
 ```python
 from keras import layers, models
-from tfswin import SwinTransformerTiny224, preprocess_input
+from tfswin import SwinTransformerTiny224
 
-inputs = layers.Input(shape=(224, 224, 3), dtype='uint8')
-outputs = layers.Lambda(preprocess_input)(inputs)
-outputs = SwinTransformerTiny224(input_shape=(224, 224, 3), output_shape = (224,224,1))(outputs)
-outputs = layers.Dense(100, activation='softmax')(outputs)
 
-model = models.Model(inputs=inputs, outputs=outputs)
+model = SwinTransformerTiny224(input_shape=(224, 224, 3), output_shape = (224,224,1), preprocess=False)
+
+
 model.compile(...)
 model.fit(...)
 ```
