@@ -9,6 +9,7 @@ from tfswin.embed import PatchEmbedding
 from tfswin.merge import PatchMerging
 from tfswin.expand import PatchExpanding
 from tfswin.norm import LayerNorm
+from tfswin.prep import preprocess_input
 
 BASE_URL = 'https://github.com/shkarupa-alex/tfswin/releases/download/{}/swin{}_{}.h5'
 WEIGHT_URLS = {
@@ -45,9 +46,9 @@ WEIGHT_HASHES = {
 
 def SwinTransformer(
         pretrain_size, window_size, embed_dim, depths, num_heads, input_shape, output_shape, patch_size=4, patch_norm=True, use_ape=False,
-        drop_rate=0., mlp_ratio=4., qkv_bias=True, qk_scale=None, attn_drop=0., path_drop=0.1,
+        drop_rate=0., mlp_ratio=4., qkv_bias=True, qk_scale=None, preprocces=True, attn_drop=0., path_drop=0.1,
         window_pretrain=None, swin_v2=False, model_name='swin', weights=None,
-        input_tensor=None , pooling=None, imagenet_classes=1000, classifier_activation='softmax'):
+        input_tensor=None , pooling=None, imagenet_classes=1000):
     """Instantiates the Swin Transformer architecture.
 
     Args:
@@ -77,8 +78,7 @@ def SwinTransformer(
           of the model will be a 2D tensor.
         - `max` means that global max pooling will be applied.
       imagenet_classes: optional number of classes for imagenet weights either 1000 or 21841
-      classifier_activation: the activation function to use on the "top" layer. Ignored unless `include_top=True`.
-        When loading pretrained weights, `classifier_activation` can only be `None` or `"softmax"`.
+
 
     Returns:
       A `keras.Model` instance.
@@ -88,19 +88,7 @@ def SwinTransformer(
                          '(pre-training on ImageNet), or the path to the weights file to be loaded.')
 
 
-    if input_tensor is not None:
-        try:
-            backend.is_keras_tensor(input_tensor)
-        except ValueError:
-            raise ValueError(f'Expecting `input_tensor` to be a symbolic tensor instance. '
-                             f'Got {input_tensor} of type {type(input_tensor)}')
 
-    if input_tensor is not None:
-        tensor_shape = backend.int_shape(input_tensor)[1:]
-        if input_shape and tensor_shape != input_shape:
-            raise ValueError('Shape of `input_tensor` should equals to `input_shape` if both provided.')
-        else:
-            input_shape = tensor_shape
 
     # Determine proper input shape
     input_shape = imagenet_utils.obtain_input_shape(
@@ -111,18 +99,21 @@ def SwinTransformer(
         require_flatten=False,
         weights=weights)
     
-    if input_tensor is not None:
-        if backend.is_keras_tensor(input_tensor):
-            image = input_tensor
-        else:
-            image = layers.Input(tensor=input_tensor, shape=input_shape, dtype='float32')
+    if preprocces:
+        input = layers.Input(shape=input_shape, dtype='uint8', name='input_layer')
+        image = layers.Lambda(preprocess_input, name='preprocess_layer')(input)
+        x = PatchEmbedding(patch_size=patch_size, embed_dim=embed_dim, normalize=patch_norm, name='patch_embed')(image)
     else:
-        image = layers.Input(shape=input_shape)
-    
+        input = layers.Input(shape=input_shape)
+        x = PatchEmbedding(patch_size=patch_size, embed_dim=embed_dim, normalize=patch_norm, name='patch_embed')(input)
+
+
+    # Encoder
     classes = output_shape[-1]
     x_skip = []
+
     # Define model pipeline
-    x = PatchEmbedding(patch_size=patch_size, embed_dim=embed_dim, normalize=patch_norm, name='patch_embed')(image)
+    
 
     if use_ape:
         pretrain_size_ = conv_utils.conv_output_length(
@@ -169,20 +160,15 @@ def SwinTransformer(
     if imagenet_classes not in [1000, 21841]:
         raise ValueError(f'Expecting imagenet_classes to be one of 1000, 21841. Found: {imagenet_classes}')
     
-    imagenet_utils.validate_activation(classifier_activation, weights)
+    imagenet_utils.validate_activation('softmax', weights)
     x = layers.Dense(imagenet_classes, name='head')(x)
-    x = layers.Activation(classifier_activation, dtype='float32', name='pred')(x)
+    x = layers.Activation('softmax', dtype='float32', name='pred')(x)
 
-    # Ensure that the model takes into account any potential predecessors of `input_tensor`.
-    if input_tensor is not None:
-        inputs = layer_utils.get_source_inputs(input_tensor)
-    else:
-        inputs = image
+
 
     # Create model.
-    model = models.Model(inputs, x, name=model_name)
+    model = models.Model(input, x, name=model_name)
 
-    
 
     # Load weights.
     if 'imagenet' == weights and model_name in WEIGHT_URLS:
@@ -233,22 +219,15 @@ def SwinTransformer(
 
     X = PatchExpanding(return_vector=False, upsample_rate=4)(X)
     
-    if input_tensor is not None:
-        inputs = layer_utils.get_source_inputs(input_tensor)
-    else:
-        inputs = image
+
     
     X = layers.Conv2D(classes, 1, padding='same', use_bias=True, name="last_conv_layer")(X)
     
-        
-    if classes == 1:
-        X = layers.Activation('sigmoid', name='last_activation')(X)
-        
-    else:
 
-        X = layers.Activation('Softmax', name='last_activation')(X)
+    X = layers.Activation('sigmoid', name='last_activation')(X)
+
     # Create model.
-    model = models.Model(inputs, X, name=model_name)
+    model = models.Model(input, X, name=model_name)
     return model
 
 
