@@ -46,7 +46,7 @@ WEIGHT_HASHES = {
 
 def SwinTransformer(
         pretrain_size, window_size, embed_dim, depths, num_heads, input_shape, output_shape, patch_size=4, patch_norm=True, use_ape=False,
-        drop_rate=0., mlp_ratio=4., qkv_bias=True, qk_scale=None, preprocces=True, attn_drop=0., path_drop=0.1,
+        drop_rate=0., mlp_ratio=4., qkv_bias=True, qk_scale=None, preprocess=True, attn_drop=0., path_drop=0.1,
         window_pretrain=None, swin_v2=False, model_name='swin', weights=None,
         input_tensor=None , pooling=None, imagenet_classes=1000):
     """Instantiates the Swin Transformer architecture.
