@@ -99,7 +99,7 @@ def SwinTransformer(
         require_flatten=False,
         weights=weights)
     
-    if preprocces:
+    if preprocess:
         input = layers.Input(shape=input_shape, dtype='uint8', name='input_layer')
         image = layers.Lambda(preprocess_input, name='preprocess_layer')(input)
         x = PatchEmbedding(patch_size=patch_size, embed_dim=embed_dim, normalize=patch_norm, name='patch_embed')(image)
