@@ -221,7 +221,7 @@ def SwinTransformer(
     
 
     
-    X = layers.Conv2D(classes, 1, padding='same', use_bias=True, name="last_conv_layer")(X)
+    X = layers.Dense(classes, name="last_Projection_layer")(X)
     
 
     X = layers.Activation('sigmoid', name='last_activation')(X)
